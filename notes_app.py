@@ -77,10 +77,9 @@ class NotesApp:
         self.root = root
         self.store = NoteStore()
         self.vault = PasswordVault()
-        self.section = "public"
+        self.filter_vars = {}
         self.selected_id = None
         self.note_buttons = {}
-        self.tab_buttons = {}
         self.save_job = None
         self._loading = False
         self._lock_visible = False
@@ -88,7 +87,7 @@ class NotesApp:
         self._setup_window()
         self._build_ui()
         self._bind_shortcuts()
-        self.set_section("public")
+        self.apply_filters()
         self.root.after(2500, self._start_silent_update_check)
 
     def _setup_window(self):
@@ -110,7 +109,7 @@ class NotesApp:
         shell = tk.Frame(self.root, bg=COLORS["bg"])
         shell.pack(fill="both", expand=True, padx=16, pady=16)
 
-        sidebar = tk.Frame(shell, bg=COLORS["sidebar"], width=320)
+        sidebar = tk.Frame(shell, bg=COLORS["sidebar"], width=340)
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
 
@@ -120,22 +119,34 @@ class NotesApp:
         title_row = tk.Frame(header, bg=COLORS["sidebar"])
         title_row.pack(fill="x")
 
+        left_block = tk.Frame(title_row, bg=COLORS["sidebar"])
+        left_block.pack(side="left", anchor="n")
+
         brand_font = tkfont.Font(family="Segoe UI Semibold", size=16)
         my_width = brand_font.measure("my")
         notes_width = brand_font.measure("Notes")
         brand_height = brand_font.metrics("linespace")
         brand = tk.Canvas(
-            title_row,
+            left_block,
             bg=COLORS["sidebar"],
             highlightthickness=0,
             bd=0,
             width=my_width + notes_width,
             height=brand_height,
         )
-        brand.pack(side="left")
+        brand.pack(anchor="w")
         baseline = brand_font.metrics("ascent")
         brand.create_text(0, baseline, text="my", fill=COLORS["brand_my"], font=brand_font, anchor="sw")
         brand.create_text(my_width, baseline, text="Notes", fill=COLORS["brand_notes"], font=brand_font, anchor="sw")
+
+        tk.Label(
+            left_block,
+            text=f"by {APP_AUTHOR}",
+            bg=COLORS["sidebar"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 9),
+            anchor="w",
+        ).pack(anchor="w")
 
         self.new_btn = tk.Button(
             title_row,
@@ -152,7 +163,7 @@ class NotesApp:
             pady=4,
             bd=0,
         )
-        self.new_btn.pack(side="right")
+        self.new_btn.pack(side="right", anchor="n")
 
         self.lock_btn = tk.Button(
             title_row,
@@ -170,31 +181,31 @@ class NotesApp:
             bd=0,
         )
 
-        tk.Label(
-            header,
-            text=f"by {APP_AUTHOR}",
-            bg=COLORS["sidebar"],
-            fg=COLORS["muted"],
-            font=("Segoe UI", 9),
-            anchor="w",
-        ).pack(fill="x", pady=(2, 8))
-
-        tabs = tk.Frame(header, bg=COLORS["sidebar"])
-        tabs.pack(fill="x")
+        filters = tk.Frame(title_row, bg=COLORS["sidebar"])
+        filters.pack(side="left", padx=(10, 6), anchor="n")
+        self.filter_checks = {}
         for key, label in CATEGORY_LABELS:
-            button = tk.Button(
-                tabs,
+            var = tk.BooleanVar(value=(key == "public"))
+            self.filter_vars[key] = var
+            check = tk.Checkbutton(
+                filters,
                 text=label,
-                command=lambda value=key: self.set_section(value),
-                relief="flat",
-                cursor="hand2",
-                font=("Segoe UI Semibold", 8),
-                padx=4,
-                pady=5,
+                variable=var,
+                command=lambda value=key: self.on_filter_toggle(value),
+                bg=COLORS["sidebar"],
+                fg=COLORS["text"],
+                activebackground=COLORS["sidebar"],
+                activeforeground=COLORS["text"],
+                selectcolor=COLORS["search"],
+                highlightthickness=0,
                 bd=0,
+                font=("Segoe UI", 8),
+                cursor="hand2",
+                anchor="w",
+                padx=0,
             )
-            button.pack(side="left", expand=True, fill="x", padx=2)
-            self.tab_buttons[key] = button
+            check.pack(anchor="w")
+            self.filter_checks[key] = check
 
         search_wrap = tk.Frame(sidebar, bg=COLORS["search"], highlightbackground=COLORS["line"], highlightthickness=1)
         search_wrap.pack(fill="x", padx=14, pady=(10, 12))
@@ -436,30 +447,37 @@ class NotesApp:
         self.search_entry.focus_set()
         self.search_entry.select_range(0, "end")
 
+    def selected_categories(self):
+        return [key for key, _label in CATEGORY_LABELS if self.filter_vars.get(key) and self.filter_vars[key].get()]
+
     def private_locked(self):
-        return self.section == "private" and not self.vault.unlocked
+        return self.selected_categories() == ["private"] and not self.vault.unlocked
 
     def visible_notes(self):
-        if self.private_locked():
+        cats = self.selected_categories()
+        if "private" in cats and not self.vault.unlocked:
+            cats = [key for key in cats if key != "private"]
+        if not cats:
             return []
-        return self.store.search(self._search_query(), category=self.section)
+        return self.store.search(self._search_query(), categories=cats)
 
-    def _update_tabs(self):
-        for key, button in self.tab_buttons.items():
-            if key == self.section:
-                button.config(bg=COLORS["accent"], fg="#FFFFFF", activebackground=COLORS["accent_hover"], activeforeground="#FFFFFF")
-            else:
-                button.config(bg=COLORS["sidebar_hover"], fg=COLORS["text"], activebackground=COLORS["sidebar_active"], activeforeground=COLORS["text"])
-        if self.section == "private" and self.vault.unlocked:
-            self.lock_btn.pack(side="right", padx=(0, 8))
+    def _update_lock_button(self):
+        if "private" in self.selected_categories() and self.vault.unlocked:
+            self.lock_btn.pack(side="right", padx=(0, 8), anchor="n")
         else:
             self.lock_btn.pack_forget()
 
-    def set_section(self, section):
+    def on_filter_toggle(self, key):
+        if key == "private" and self.filter_vars["private"].get() and not self.vault.unlocked:
+            if not self._ensure_private_access():
+                self.filter_vars["private"].set(False)
+                return
+        self.apply_filters()
+
+    def apply_filters(self):
         if self.selected_id:
             self.save_now()
-        self.section = section
-        self._update_tabs()
+        self._update_lock_button()
         if self.private_locked():
             self.selected_id = None
             self.refresh_list()
@@ -468,6 +486,9 @@ class NotesApp:
         self.hide_lock_screen()
         notes = self.visible_notes()
         self.refresh_list()
+        visible_ids = {note["id"] for note in notes}
+        if self.selected_id and self.selected_id in visible_ids:
+            return
         if notes:
             self.select_note(notes[0]["id"])
         else:
@@ -476,10 +497,9 @@ class NotesApp:
     def lock_private(self):
         self.save_now()
         self.vault.lock()
-        if self.section == "private":
-            self.set_section("private")
-        else:
-            self._update_tabs()
+        if self.filter_vars["private"].get() and self.selected_categories() != ["private"]:
+            self.filter_vars["private"].set(False)
+        self.apply_filters()
 
     def show_lock_screen(self):
         self._lock_visible = True
@@ -550,7 +570,7 @@ class NotesApp:
             self.lock_error.config(text="Wrong password.")
             return
         self.hide_lock_screen()
-        self._update_tabs()
+        self._update_lock_button()
         notes = self.visible_notes()
         self.refresh_list()
         if notes:
@@ -642,7 +662,8 @@ class NotesApp:
         self.save_now()
         self.store.set_category(self.selected_id, target)
         note_id = self.selected_id
-        self.set_section(target)
+        self.filter_vars[target].set(True)
+        self.apply_filters()
         if self.store.get(note_id):
             self.select_note(note_id)
 
@@ -667,7 +688,7 @@ class NotesApp:
 
         notes = self.visible_notes()
         if not notes:
-            empty_text = "No notes found" if self._search_query() else f"No {CATEGORY_NAMES[self.section].lower()} notes yet"
+            empty_text = "No notes found" if self._search_query() else "No notes in the selected categories"
             empty = tk.Label(
                 self.list_frame,
                 text=empty_text,
@@ -794,8 +815,11 @@ class NotesApp:
         if note is None:
             return
         if note_category(note) == "private" and not self.vault.unlocked:
-            self.set_section("private")
-            return
+            self.filter_vars["private"].set(True)
+            if not self._ensure_private_access():
+                self.filter_vars["private"].set(False)
+                return
+        self.filter_vars[note_category(note)].set(True)
 
         self.selected_id = note_id
         self._loading = True
@@ -817,12 +841,23 @@ class NotesApp:
 
     def create_note(self):
         if self.private_locked():
-            self.lock_password.focus_set()
+            if hasattr(self, "lock_password"):
+                self.lock_password.focus_set()
             return
-        if self.section == "private" and not self._ensure_private_access():
+        cats = self.selected_categories()
+        if "private" in cats and not self._ensure_private_access():
             return
+        if len(cats) == 1:
+            category = cats[0]
+        elif "public" in cats:
+            category = "public"
+        elif cats:
+            category = cats[0]
+        else:
+            self.filter_vars["public"].set(True)
+            category = "public"
         self.save_now()
-        note = self.store.create(category=self.section)
+        note = self.store.create(category=category)
         if self._search_query():
             self.search_var.set("")
             self.search_entry.config(fg=COLORS["text"])

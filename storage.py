@@ -139,9 +139,15 @@ class NoteStore:
                 return note
         return None
 
-    def search(self, query, category="public"):
+    def search(self, query, category=None, categories=None):
         text = (query or "").strip().lower()
-        notes = [note for note in self.notes if note_category(note) == category]
+        if categories:
+            wanted = set(categories)
+        elif category:
+            wanted = {category}
+        else:
+            wanted = {"public"}
+        notes = [note for note in self.notes if note_category(note) in wanted]
         if not text:
             return notes
         results = []
