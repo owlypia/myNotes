@@ -6,6 +6,7 @@ import tkinter as tk
 import urllib.error
 import webbrowser
 from datetime import datetime
+from tkinter import font as tkfont
 from tkinter import messagebox
 
 from paths import resource_path
@@ -119,22 +120,22 @@ class NotesApp:
         title_row = tk.Frame(header, bg=COLORS["sidebar"])
         title_row.pack(fill="x")
 
-        brand = tk.Frame(title_row, bg=COLORS["sidebar"])
+        brand_font = tkfont.Font(family="Segoe UI Semibold", size=16)
+        my_width = brand_font.measure("my")
+        notes_width = brand_font.measure("Notes")
+        brand_height = brand_font.metrics("linespace")
+        brand = tk.Canvas(
+            title_row,
+            bg=COLORS["sidebar"],
+            highlightthickness=0,
+            bd=0,
+            width=my_width + notes_width,
+            height=brand_height,
+        )
         brand.pack(side="left")
-        tk.Label(
-            brand,
-            text="my",
-            bg=COLORS["sidebar"],
-            fg=COLORS["brand_my"],
-            font=("Segoe UI Semibold", 16),
-        ).pack(side="left")
-        tk.Label(
-            brand,
-            text="Notes",
-            bg=COLORS["sidebar"],
-            fg=COLORS["brand_notes"],
-            font=("Segoe UI Semibold", 16),
-        ).pack(side="left")
+        baseline = brand_font.metrics("ascent")
+        brand.create_text(0, baseline, text="my", fill=COLORS["brand_my"], font=brand_font, anchor="sw")
+        brand.create_text(my_width, baseline, text="Notes", fill=COLORS["brand_notes"], font=brand_font, anchor="sw")
 
         self.new_btn = tk.Button(
             title_row,
