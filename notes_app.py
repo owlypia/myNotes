@@ -141,6 +141,17 @@ class NotesApp:
         brand.create_text(0, baseline, text="my", fill=COLORS["brand_my"], font=brand_font, anchor="sw")
         brand.create_text(my_width, baseline, text="Notes", fill=COLORS["brand_notes"], font=brand_font, anchor="sw")
 
+        families = {name.lower() for name in tkfont.families()}
+        if "segoe mdl2 assets" in families:
+            self._trash_glyph = "\uE74D"
+            self._trash_font = ("Segoe MDL2 Assets", 9)
+        elif "segoe fluent icons" in families:
+            self._trash_glyph = "\uE74D"
+            self._trash_font = ("Segoe Fluent Icons", 9)
+        else:
+            self._trash_glyph = "✕"
+            self._trash_font = ("Segoe UI", 9)
+
         tk.Label(
             left_block,
             text=f"by {APP_AUTHOR}",
@@ -279,23 +290,6 @@ class NotesApp:
         )
         self.meta_label.pack(side="left")
 
-        self.delete_btn = tk.Button(
-            self.top,
-            text="Delete",
-            command=self.delete_note,
-            bg=COLORS["paper"],
-            fg=COLORS["danger"],
-            activebackground="#F6E8E4",
-            activeforeground=COLORS["danger_hover"],
-            relief="flat",
-            cursor="hand2",
-            font=("Segoe UI Semibold", 9),
-            padx=8,
-            pady=2,
-            bd=0,
-        )
-        self.delete_btn.pack(side="right")
-
         self.category_var = tk.StringVar(value="Public")
         self.category_menu = tk.OptionMenu(
             self.top,
@@ -316,7 +310,7 @@ class NotesApp:
             bd=0,
             cursor="hand2",
         )
-        self.category_menu.pack(side="right", padx=(0, 10))
+        self.category_menu.pack(side="right")
 
         self.title_var = tk.StringVar()
         self.title_var.trace_add("write", lambda *_: self.schedule_save())
@@ -400,7 +394,7 @@ class NotesApp:
         width = self.list_canvas.winfo_width()
         if width < 50:
             width = 220
-        return max(80, width - 36)
+        return max(80, width - 64)
 
     def _title_to_body(self, _event=None):
         self.body.focus_set()
@@ -712,9 +706,31 @@ class NotesApp:
         row = tk.Frame(self.list_frame, bg=bg, cursor="hand2")
         row.pack(fill="x", padx=8, pady=3)
 
+        delete = tk.Button(
+            row,
+            text=self._trash_glyph,
+            command=lambda target=note_id: self.delete_note(target),
+            bg=bg,
+            fg=COLORS["danger"],
+            activebackground=bg,
+            activeforeground=COLORS["danger_hover"],
+            relief="flat",
+            cursor="hand2",
+            font=self._trash_font,
+            padx=4,
+            pady=2,
+            bd=0,
+            takefocus=0,
+            highlightthickness=0,
+        )
+        delete.pack(side="right", padx=(0, 4), pady=(6, 0), anchor="n")
+
+        text_col = tk.Frame(row, bg=bg, cursor="hand2")
+        text_col.pack(side="left", fill="both", expand=True)
+
         wrap = self._list_wrap()
         title = tk.Label(
-            row,
+            text_col,
             text=preview_text(note),
             bg=bg,
             fg=COLORS["text"],
@@ -723,14 +739,14 @@ class NotesApp:
             justify="left",
             wraplength=wrap,
         )
-        title.pack(fill="x", padx=10, pady=(8, 0))
+        title.pack(fill="x", padx=(10, 4), pady=(8, 0))
 
         snippet = one_line(note.get("content") or "", 42)
         title_text = one_line(note.get("title") or "")
         snippet_label = None
         if snippet and title_text and snippet != title_text:
             snippet_label = tk.Label(
-                row,
+                text_col,
                 text=snippet,
                 bg=bg,
                 fg=COLORS["muted"],
@@ -739,39 +755,41 @@ class NotesApp:
                 justify="left",
                 wraplength=wrap,
             )
-            snippet_label.pack(fill="x", padx=10)
+            snippet_label.pack(fill="x", padx=(10, 4))
 
         when = tk.Label(
-            row,
+            text_col,
             text=format_when(note.get("updated_at")),
             bg=bg,
             fg=COLORS["muted"],
             font=("Segoe UI", 8),
             anchor="w",
         )
-        when.pack(fill="x", padx=10, pady=(2, 8))
+        when.pack(fill="x", padx=(10, 4), pady=(2, 8))
 
-        widgets = [row, title, when]
+        paint = [row, text_col, title, when, delete]
         if snippet_label is not None:
-            widgets.append(snippet_label)
+            paint.append(snippet_label)
 
         def select(_event=None, target=note_id):
             self.select_note(target)
 
-        def hover_in(_event, target=row, labels=widgets[1:]):
-            if note_id != self.selected_id:
-                target.configure(bg=COLORS["sidebar_hover"])
-                for label in labels:
-                    label.configure(bg=COLORS["sidebar_hover"])
+        def set_bg(color):
+            for widget in paint:
+                widget.configure(bg=color)
+            delete.configure(activebackground=color)
 
-        def hover_out(_event, target=row, labels=widgets[1:]):
+        def hover_in(_event):
             if note_id != self.selected_id:
-                target.configure(bg=COLORS["sidebar"])
-                for label in labels:
-                    label.configure(bg=COLORS["sidebar"])
+                set_bg(COLORS["sidebar_hover"])
 
-        for widget in widgets:
-            widget.bind("<Button-1>", select)
+        def hover_out(_event):
+            if note_id != self.selected_id:
+                set_bg(COLORS["sidebar"])
+
+        for widget in paint:
+            if widget is not delete:
+                widget.bind("<Button-1>", select)
             widget.bind("<Enter>", hover_in)
             widget.bind("<Leave>", hover_out)
 
@@ -781,7 +799,6 @@ class NotesApp:
         self.title_entry.pack_forget()
         self.editor_line.pack_forget()
         self.body.pack_forget()
-        self.delete_btn.pack_forget()
         self.category_menu.pack_forget()
         self.top.pack_forget()
 
@@ -800,8 +817,7 @@ class NotesApp:
         self.hide_lock_screen()
         self.empty_hint.pack_forget()
         self.top.pack(fill="x", padx=22, pady=(16, 0))
-        self.delete_btn.pack(side="right")
-        self.category_menu.pack(side="right", padx=(0, 10))
+        self.category_menu.pack(side="right")
         self.title_entry.pack(fill="x", padx=22, pady=(10, 6))
         self.editor_line.pack(fill="x", padx=22, pady=(0, 8))
         self.body.pack(fill="both", expand=True, padx=22, pady=(0, 18))
@@ -864,21 +880,27 @@ class NotesApp:
             self.search_entry.config(fg=COLORS["text"])
         self.select_note(note["id"])
 
-    def delete_note(self):
-        if not self.selected_id:
+    def delete_note(self, note_id=None):
+        target = note_id or self.selected_id
+        if not target:
             return
-        note = self.store.get(self.selected_id)
-        label = preview_text(note) if note else "this note"
+        note = self.store.get(target)
+        if note is None:
+            return
+        label = preview_text(note)
         if not messagebox.askyesno("Delete note", f'Delete "{label}"?'):
             return
-        self.store.delete(self.selected_id)
-        self.selected_id = None
+        was_selected = target == self.selected_id
+        if was_selected:
+            self.selected_id = None
+        self.store.delete(target)
         remaining = self.visible_notes()
         self.refresh_list()
-        if remaining:
-            self.select_note(remaining[0]["id"])
-        else:
-            self.show_empty_editor()
+        if was_selected:
+            if remaining:
+                self.select_note(remaining[0]["id"])
+            else:
+                self.show_empty_editor()
 
     def schedule_save(self):
         if self._loading or not self.selected_id:
