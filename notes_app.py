@@ -28,6 +28,8 @@ COLORS = {
     "danger": "#A33B2B",
     "danger_hover": "#862F22",
     "search": "#FFFCF7",
+    "brand_my": "#6B2FA0",
+    "brand_notes": "#C62828",
 }
 
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -89,7 +91,7 @@ class NotesApp:
         self.root.after(2500, self._start_silent_update_check)
 
     def _setup_window(self):
-        self.root.title("MyNotes")
+        self.root.title("myNotes")
         self.root.configure(bg=COLORS["bg"])
         icon_file = resource_path("assets", "icon.ico")
         if os.path.exists(icon_file):
@@ -117,11 +119,20 @@ class NotesApp:
         title_row = tk.Frame(header, bg=COLORS["sidebar"])
         title_row.pack(fill="x")
 
+        brand = tk.Frame(title_row, bg=COLORS["sidebar"])
+        brand.pack(side="left")
         tk.Label(
-            title_row,
-            text="MyNotes",
+            brand,
+            text="my",
             bg=COLORS["sidebar"],
-            fg=COLORS["text"],
+            fg=COLORS["brand_my"],
+            font=("Segoe UI Semibold", 16),
+        ).pack(side="left")
+        tk.Label(
+            brand,
+            text="Notes",
+            bg=COLORS["sidebar"],
+            fg=COLORS["brand_notes"],
             font=("Segoe UI Semibold", 16),
         ).pack(side="left")
 
