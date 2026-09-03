@@ -26,3 +26,8 @@ git push origin v1.0.1
 ```
 
 GitHub Actions builds `MyNotesSetup.exe` and attaches it to the release. Installed apps will offer that version.
+
+## License
+
+MIT. Copyright (c) 2026 Kenan (kenan@owlypia.org). See [LICENSE](LICENSE).
+You may use, copy, modify, and share this software.
