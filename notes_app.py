@@ -202,11 +202,19 @@ class NotesApp:
 
         tk.Label(
             sidebar,
-            text=f"Written by {APP_AUTHOR}",
+            text="2026",
             bg=COLORS["sidebar"],
             fg=COLORS["muted"],
             font=("Segoe UI", 8),
         ).pack(side="bottom", fill="x", pady=(0, 12))
+
+        tk.Label(
+            sidebar,
+            text=f"Written by {APP_AUTHOR}",
+            bg=COLORS["sidebar"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 8),
+        ).pack(side="bottom", fill="x")
 
         self.update_label = tk.Label(
             sidebar,
