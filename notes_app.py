@@ -183,8 +183,24 @@ class NotesApp:
             bd=0,
         )
 
-        filters = tk.Frame(title_row, bg=COLORS["sidebar"])
-        filters.pack(side="left", padx=(10, 6), anchor="n")
+        search_wrap = tk.Frame(sidebar, bg=COLORS["search"], highlightbackground=COLORS["line"], highlightthickness=1)
+        search_wrap.pack(fill="x", padx=14, pady=(10, 6))
+
+        self.search_var = tk.StringVar()
+        self.search_entry = tk.Entry(
+            search_wrap,
+            textvariable=self.search_var,
+            bg=COLORS["search"],
+            fg=COLORS["text"],
+            insertbackground=COLORS["text"],
+            relief="flat",
+            font=("Segoe UI", 10),
+        )
+        self.search_entry.pack(fill="x", padx=8, pady=7)
+        self._set_placeholder(self.search_entry, self.search_var, SEARCH_PLACEHOLDER)
+
+        filters = tk.Frame(sidebar, bg=COLORS["sidebar"])
+        filters.pack(fill="x", padx=14, pady=(0, 10))
         self.filter_checks = {}
         for key, label in CATEGORY_LABELS:
             var = tk.BooleanVar(value=(key == "public"))
@@ -203,27 +219,10 @@ class NotesApp:
                 bd=0,
                 font=("Segoe UI", 8),
                 cursor="hand2",
-                anchor="w",
                 padx=0,
             )
-            check.pack(anchor="w")
+            check.pack(side="left", expand=True)
             self.filter_checks[key] = check
-
-        search_wrap = tk.Frame(sidebar, bg=COLORS["search"], highlightbackground=COLORS["line"], highlightthickness=1)
-        search_wrap.pack(fill="x", padx=14, pady=(10, 12))
-
-        self.search_var = tk.StringVar()
-        self.search_entry = tk.Entry(
-            search_wrap,
-            textvariable=self.search_var,
-            bg=COLORS["search"],
-            fg=COLORS["text"],
-            insertbackground=COLORS["text"],
-            relief="flat",
-            font=("Segoe UI", 10),
-        )
-        self.search_entry.pack(fill="x", padx=8, pady=7)
-        self._set_placeholder(self.search_entry, self.search_var, SEARCH_PLACEHOLDER)
 
         tk.Label(
             sidebar,
