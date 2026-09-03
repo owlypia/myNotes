@@ -33,3 +33,18 @@ def _data_folder():
     folder = os.path.join(appdata, "MyNotes")
     os.makedirs(folder, exist_ok=True)
     return folder
+
+
+def update_marker_path():
+    return os.path.join(_data_folder(), "just_updated.txt")
+
+
+def installed_exe_path():
+    if is_frozen():
+        return sys.executable
+    return os.path.join(
+        os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+        "Programs",
+        "MyNotes",
+        "MyNotes.exe",
+    )

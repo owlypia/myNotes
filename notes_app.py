@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 import tkinter as tk
@@ -9,7 +10,7 @@ from datetime import datetime
 from tkinter import font as tkfont
 from tkinter import messagebox
 
-from paths import resource_path
+from paths import installed_exe_path, resource_path, update_marker_path
 from storage import NoteStore, note_category, split_title_body
 from updater import download_installer, fetch_latest_release, is_newer
 from vault import PasswordVault
@@ -88,6 +89,7 @@ class NotesApp:
         self._build_ui()
         self._bind_shortcuts()
         self.apply_filters()
+        self.root.after(800, self._notify_if_updated)
         self.root.after(2500, self._start_silent_update_check)
 
     def _setup_window(self):
@@ -978,7 +980,8 @@ class NotesApp:
         notes = f"\n\n{release.notes[:400]}" if release.notes else ""
         if not messagebox.askyesno(
             "Update available",
-            f"MyNotes {release.version} is available.\nYou have {APP_VERSION}.{notes}\n\nDownload and install now?",
+            f"myNotes {release.version} is available.\nYou have {APP_VERSION}.{notes}\n\n"
+            "Install in the background now? The setup wizard will not be shown.",
         ):
             return
         self._install_update(release)
@@ -994,15 +997,43 @@ class NotesApp:
         except (urllib.error.URLError, TimeoutError, OSError, ValueError):
             self.root.after(0, lambda: self._update_check_failed("The update could not be downloaded."))
             return
-        self.root.after(0, lambda: self._launch_installer(destination))
+        self.root.after(0, lambda: self._launch_installer(destination, release.version))
 
-    def _launch_installer(self, setup_path):
-        self.save_now()
+    def _notify_if_updated(self):
+        marker = update_marker_path()
+        if not os.path.exists(marker):
+            return
         try:
-            subprocess.Popen([setup_path], close_fds=True)
+            with open(marker, "r", encoding="utf-8") as handle:
+                version = handle.read().strip() or APP_VERSION
+            os.remove(marker)
+        except OSError:
+            return
+        messagebox.showinfo("Update complete", f"myNotes has been updated to {version}.")
+
+    def _launch_installer(self, setup_path, version):
+        self.save_now()
+        app_exe = installed_exe_path()
+        marker = update_marker_path()
+        bat_path = os.path.join(tempfile.gettempdir(), "mynotes_silent_update.bat")
+        bat = (
+            "@echo off\n"
+            "timeout /t 2 /nobreak >nul\n"
+            f'"{setup_path}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES /FORCECLOSEAPPLICATIONS\n'
+            "if errorlevel 1 goto :eof\n"
+            f'echo {version}>"{marker}"\n'
+            f'if exist "{app_exe}" start "" "{app_exe}"\n'
+        )
+        try:
+            with open(bat_path, "w", encoding="utf-8") as handle:
+                handle.write(bat)
+            flags = 0
+            if sys.platform == "win32":
+                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+            subprocess.Popen(["cmd.exe", "/c", bat_path], creationflags=flags, close_fds=True)
         except OSError:
             self._restore_update_label()
-            messagebox.showerror("Updates", "Could not start the installer.")
+            messagebox.showerror("Updates", "Could not start the silent installer.")
             return
         self.root.destroy()
 

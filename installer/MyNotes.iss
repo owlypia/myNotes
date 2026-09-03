@@ -1,5 +1,5 @@
 #define MyAppName "MyNotes"
-#define MyAppVersion "1.0.4"
+#define MyAppVersion "1.0.5"
 #define MyAppPublisher "Kenan"
 #define MyAppExeName "MyNotes.exe"
 
@@ -23,7 +23,7 @@ PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
 RestartApplications=no
-DisableWelcomePage=no
+DisableWelcomePage=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
