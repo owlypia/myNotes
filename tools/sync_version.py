@@ -1,9 +1,11 @@
 from pathlib import Path
-
-from version import APP_VERSION
-
+import re
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from version import APP_VERSION
 
 
 def version_tuple():
@@ -30,7 +32,6 @@ def sync():
 
     info = ROOT / "file_version_info.txt"
     text = info.read_text(encoding="utf-8")
-    import re
 
     text = re.sub(r"filevers=\(\d+, \d+, \d+, \d+\)", f"filevers=({major}, {minor}, {patch}, {build})", text)
     text = re.sub(r"prodvers=\(\d+, \d+, \d+, \d+\)", f"prodvers=({major}, {minor}, {patch}, {build})", text)
