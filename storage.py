@@ -108,6 +108,8 @@ class NoteStore:
         if note is None:
             return None
         title, content = split_title_body(title, content)
+        if note.get("title") == title and note.get("content") == content:
+            return note
         note["title"] = title
         note["content"] = content
         note["updated_at"] = datetime.now().isoformat(timespec="seconds")
