@@ -394,7 +394,7 @@ class NotesApp:
         width = self.list_canvas.winfo_width()
         if width < 50:
             width = 220
-        return max(80, width - 64)
+        return max(80, width - 108)
 
     def _title_to_body(self, _event=None):
         self.body.focus_set()
@@ -725,6 +725,16 @@ class NotesApp:
         )
         delete.pack(side="right", padx=(0, 4), pady=(6, 0), anchor="n")
 
+        when = tk.Label(
+            row,
+            text=format_when(note.get("updated_at")),
+            bg=bg,
+            fg=COLORS["muted"],
+            font=("Segoe UI", 8),
+            anchor="e",
+        )
+        when.pack(side="right", padx=(0, 2), pady=(10, 0), anchor="n")
+
         text_col = tk.Frame(row, bg=bg, cursor="hand2")
         text_col.pack(side="left", fill="both", expand=True)
 
@@ -755,17 +765,9 @@ class NotesApp:
                 justify="left",
                 wraplength=wrap,
             )
-            snippet_label.pack(fill="x", padx=(10, 4))
-
-        when = tk.Label(
-            text_col,
-            text=format_when(note.get("updated_at")),
-            bg=bg,
-            fg=COLORS["muted"],
-            font=("Segoe UI", 8),
-            anchor="w",
-        )
-        when.pack(fill="x", padx=(10, 4), pady=(2, 8))
+            snippet_label.pack(fill="x", padx=(10, 4), pady=(0, 8))
+        else:
+            title.pack_configure(pady=(8, 8))
 
         paint = [row, text_col, title, when, delete]
         if snippet_label is not None:
