@@ -81,6 +81,10 @@ class NotesApp:
         self.filter_vars = {}
         self.selected_id = None
         self.note_buttons = {}
+        self.note_painters = {}
+        self._title_history = [""]
+        self._title_redo = []
+        self._title_undoing = False
         self.save_job = None
         self._loading = False
         self._lock_visible = False
@@ -313,7 +317,7 @@ class NotesApp:
         self.category_menu.pack(side="right")
 
         self.title_var = tk.StringVar()
-        self.title_var.trace_add("write", lambda *_: self.schedule_save())
+        self.title_var.trace_add("write", self._on_title_write)
         self.title_entry = tk.Entry(
             self.editor,
             textvariable=self.title_var,
@@ -328,6 +332,10 @@ class NotesApp:
         self.title_entry.bind("<<Paste>>", self._on_title_paste)
         self.title_entry.bind("<Control-v>", self._on_title_paste)
         self.title_entry.bind("<Control-V>", self._on_title_paste)
+        self.title_entry.bind("<Control-z>", self._undo_title)
+        self.title_entry.bind("<Control-Z>", self._redo_title)
+        self.title_entry.bind("<Control-y>", self._redo_title)
+        self.title_entry.bind("<Control-Y>", self._redo_title)
 
         self.editor_line = tk.Frame(self.editor, bg=COLORS["line"], height=1)
         self.editor_line.pack(fill="x", padx=22, pady=(0, 8))
@@ -346,9 +354,18 @@ class NotesApp:
             spacing3=6,
             bd=0,
             highlightthickness=0,
+            undo=True,
+            autoseparators=True,
+            maxundo=-1,
         )
         self.body.pack(fill="both", expand=True, padx=22, pady=(0, 18))
         self.body.bind("<KeyRelease>", lambda _event: self.schedule_save())
+        for sequence in ("<<Paste>>", "<<Cut>>"):
+            self.body.bind(sequence, lambda _event: self.root.after_idle(self.schedule_save), add="+")
+        self.body.bind("<Control-z>", self._undo_body)
+        self.body.bind("<Control-Z>", self._redo_body)
+        self.body.bind("<Control-y>", self._redo_body)
+        self.body.bind("<Control-Y>", self._redo_body)
 
         self.empty_hint = tk.Label(
             self.editor,
@@ -408,9 +425,20 @@ class NotesApp:
         text = raw.replace("\r\n", "\n").replace("\r", "\n")
         if "\n" not in text:
             return None
-        title, content = split_title_body(text, self.body.get("1.0", "end-1c"))
+        entry = self.title_entry
+        current = self.title_var.get()
+        try:
+            start = entry.index("sel.first")
+            end = entry.index("sel.last")
+        except tk.TclError:
+            start = end = entry.index("insert")
+        combined = current[:start] + text + current[end:]
+        title, content = split_title_body(combined, self.body.get("1.0", "end-1c"))
         self._loading = True
         self.title_var.set(title)
+        if self._title_history[-1] != title:
+            self._title_history.append(title)
+            self._title_redo.clear()
         if content.strip() and not self.body.get("1.0", "end-1c").strip():
             self.body.delete("1.0", "end")
             self.body.insert("1.0", content)
@@ -420,6 +448,56 @@ class NotesApp:
         self._loading = False
         self.schedule_save()
         self.body.focus_set()
+        return "break"
+
+    def _on_title_write(self, *_):
+        if not self._loading and not self._title_undoing:
+            value = self.title_var.get()
+            if self._title_history[-1] != value:
+                self._title_history.append(value)
+                del self._title_history[:-300]
+                self._title_redo.clear()
+        self.schedule_save()
+
+    def _reset_title_history(self):
+        self._title_history = [self.title_var.get()]
+        self._title_redo = []
+
+    def _apply_title(self, value):
+        self._title_undoing = True
+        try:
+            self.title_var.set(value)
+        finally:
+            self._title_undoing = False
+        self.title_entry.icursor("end")
+
+    def _undo_title(self, _event=None):
+        if len(self._title_history) > 1:
+            self._title_redo.append(self._title_history.pop())
+            self._apply_title(self._title_history[-1])
+        return "break"
+
+    def _redo_title(self, _event=None):
+        if self._title_redo:
+            value = self._title_redo.pop()
+            self._title_history.append(value)
+            self._apply_title(value)
+        return "break"
+
+    def _undo_body(self, _event=None):
+        try:
+            self.body.edit_undo()
+        except tk.TclError:
+            pass
+        self.schedule_save()
+        return "break"
+
+    def _redo_body(self, _event=None):
+        try:
+            self.body.edit_redo()
+        except tk.TclError:
+            pass
+        self.schedule_save()
         return "break"
 
     def _on_mousewheel(self, event):
@@ -663,9 +741,42 @@ class NotesApp:
             self.select_note(note_id)
 
     def refresh_list(self):
+        top = self.list_canvas.yview()[0]
+        self._build_list()
+        self.list_frame.update_idletasks()
+        self.list_canvas.configure(scrollregion=self.list_canvas.bbox("all") or (0, 0, 0, 0))
+        self.list_canvas.yview_moveto(top)
+
+    def _sync_selection(self):
+        if self.selected_id not in self.note_painters:
+            self.refresh_list()
+            return
+        for note_id, paint in self.note_painters.items():
+            paint(COLORS["sidebar_active"] if note_id == self.selected_id else COLORS["sidebar"])
+        self._scroll_to_selected()
+
+    def _scroll_to_selected(self):
+        row = self.note_buttons.get(self.selected_id)
+        if row is None:
+            return
+        self.list_frame.update_idletasks()
+        total = self.list_frame.winfo_height()
+        view = self.list_canvas.winfo_height()
+        if total <= view or view < 20:
+            return
+        row_top = row.winfo_y()
+        row_bottom = row_top + row.winfo_height()
+        view_top = self.list_canvas.yview()[0] * total
+        if row_top < view_top:
+            self.list_canvas.yview_moveto(max(0.0, (row_top - 6) / total))
+        elif row_bottom > view_top + view:
+            self.list_canvas.yview_moveto(min(1.0, (row_bottom + 6 - view) / total))
+
+    def _build_list(self):
         for child in self.list_frame.winfo_children():
             child.destroy()
         self.note_buttons = {}
+        self.note_painters = {}
 
         if self.private_locked():
             empty = tk.Label(
@@ -796,6 +907,7 @@ class NotesApp:
             widget.bind("<Leave>", hover_out)
 
         self.note_buttons[note_id] = row
+        self.note_painters[note_id] = set_bg
 
     def _hide_note_widgets(self):
         self.title_entry.pack_forget()
@@ -810,6 +922,8 @@ class NotesApp:
         self.hide_lock_screen()
         self.title_var.set("")
         self.body.delete("1.0", "end")
+        self.body.edit_reset()
+        self._reset_title_history()
         self.meta_label.config(text="")
         self._hide_note_widgets()
         self.empty_hint.pack(expand=True)
@@ -846,12 +960,14 @@ class NotesApp:
         self.title_var.set(note.get("title", ""))
         self.body.delete("1.0", "end")
         self.body.insert("1.0", note.get("content", ""))
+        self.body.edit_reset()
+        self._reset_title_history()
         self.category_var.set(CATEGORY_NAMES.get(note_category(note), "Public"))
         created = format_when(note.get("created_at"))
         updated = format_when(note.get("updated_at"))
         self.meta_label.config(text=f"Created {created}  ·  Updated {updated}")
         self._loading = False
-        self.refresh_list()
+        self._sync_selection()
         if (note.get("title") or "") in ("", "New note") and not (note.get("content") or "").strip():
             self.title_entry.focus_set()
             self.title_entry.select_range(0, "end")
@@ -881,6 +997,7 @@ class NotesApp:
             self.search_var.set("")
             self.search_entry.config(fg=COLORS["text"])
         self.select_note(note["id"])
+        self.list_canvas.yview_moveto(0)
 
     def delete_note(self, note_id=None):
         target = note_id or self.selected_id
@@ -918,6 +1035,7 @@ class NotesApp:
         if self._loading or not self.selected_id:
             return
         before = preview_text(self.store.get(self.selected_id) or {})
+        before_order = [item.get("id") for item in self.store.notes]
         title = self.title_var.get()
         content = self.body.get("1.0", "end-1c")
         self.store.update(self.selected_id, title, content)
@@ -926,14 +1044,17 @@ class NotesApp:
             self.meta_label.config(
                 text=f"Created {format_when(note.get('created_at'))}  ·  Updated {format_when(note.get('updated_at'))}"
             )
-            if title != note.get("title", ""):
+            typing_empty_title = not title.strip() and self.root.focus_get() is self.title_entry
+            if (title != note.get("title", "") or content != note.get("content", "")) and not typing_empty_title:
                 self._loading = True
                 self.title_var.set(note.get("title", ""))
                 self.body.delete("1.0", "end")
                 self.body.insert("1.0", note.get("content", ""))
+                self.body.edit_reset()
                 self._loading = False
+                self._reset_title_history()
         after = preview_text(note or {})
-        if before != after:
+        if before != after or before_order != [item.get("id") for item in self.store.notes]:
             self.refresh_list()
 
     def on_close(self):

@@ -30,8 +30,12 @@ class PasswordVault:
         folder = os.path.dirname(self.path)
         if folder:
             os.makedirs(folder, exist_ok=True)
-        with open(self.path, "w", encoding="utf-8") as handle:
+        temp_path = self.path + ".tmp"
+        with open(temp_path, "w", encoding="utf-8") as handle:
             json.dump(self.data, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, self.path)
 
     def has_password(self):
         return bool(self.data.get("salt") and self.data.get("hash"))

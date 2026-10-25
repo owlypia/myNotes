@@ -9,6 +9,12 @@ from paths import app_dir, notes_file_path
 CATEGORIES = ("public", "private", "hidden")
 
 
+def fold(text):
+    """Case-insensitive form that treats Turkish I/i/dotted I/dotless i alike."""
+    text = (text or "").replace("\u0130", "i").replace("I", "i").replace("\u0131", "i")
+    return text.lower()
+
+
 def split_title_body(title, content=""):
     title = (title or "").replace("\r\n", "\n").replace("\r", "\n")
     content = content or ""
@@ -50,18 +56,35 @@ class NoteStore:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             shutil.copy2(legacy, path)
 
+    def _read_file(self, path):
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if not isinstance(data, list):
+            raise ValueError("notes file is not a list")
+        return [item for item in data if isinstance(item, dict)]
+
     def load(self):
         if not os.path.exists(self.path):
             self.notes = []
             return
         try:
-            with open(self.path, "r", encoding="utf-8") as handle:
-                data = json.load(handle)
-            self.notes = data if isinstance(data, list) else []
-        except (OSError, json.JSONDecodeError):
-            self.notes = []
+            self.notes = self._read_file(self.path)
+        except (OSError, ValueError):
+            self.notes = self._recover()
         if self._normalize_notes():
             self.save()
+
+    def _recover(self):
+        """The notes file is unreadable: keep a copy of it and fall back to the last backup."""
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        try:
+            shutil.copy2(self.path, f"{self.path}.corrupt-{stamp}")
+        except OSError:
+            pass
+        try:
+            return self._read_file(self.path + ".bak")
+        except (OSError, ValueError):
+            return []
 
     def _normalize_notes(self):
         changed = False
@@ -84,8 +107,17 @@ class NoteStore:
         folder = os.path.dirname(self.path)
         if folder:
             os.makedirs(folder, exist_ok=True)
-        with open(self.path, "w", encoding="utf-8") as handle:
+        temp_path = self.path + ".tmp"
+        with open(temp_path, "w", encoding="utf-8") as handle:
             json.dump(self.notes, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if os.path.exists(self.path):
+            try:
+                shutil.copy2(self.path, self.path + ".bak")
+            except OSError:
+                pass
+        os.replace(temp_path, self.path)
 
     def create(self, title="New note", content="", category="public"):
         if category not in CATEGORIES:
@@ -142,7 +174,7 @@ class NoteStore:
         return None
 
     def search(self, query, category=None, categories=None):
-        text = (query or "").strip().lower()
+        text = fold((query or "").strip())
         if categories:
             wanted = set(categories)
         elif category:
@@ -154,7 +186,7 @@ class NoteStore:
             return notes
         results = []
         for note in notes:
-            haystack = f"{note.get('title', '')} {note.get('content', '')}".lower()
+            haystack = fold(f"{note.get('title', '')} {note.get('content', '')}")
             if text in haystack:
                 results.append(note)
         return results
