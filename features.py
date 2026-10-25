@@ -75,29 +75,27 @@ class EditorMixin:
         button.bind("<Leave>", lambda _e: button.configure(bg=bg))
         return button
 
-    def _build_footer_tools(self, sidebar):
+    def _build_footer_tools(self, sidebar, author=""):
         row = tk.Frame(sidebar, bg=COLORS["sidebar"])
-        row.pack(side="bottom", fill="x", pady=(0, 2))
-        self.theme_label = tk.Label(
-            row,
-            text="Dark theme" if self.theme == "light" else "Light theme",
-            bg=COLORS["sidebar"],
-            fg=COLORS["accent"],
-            font=("Segoe UI", 8),
-            cursor="hand2",
-        )
-        self.theme_label.pack(side="left", expand=True)
-        self.theme_label.bind("<Button-1>", lambda _e: self.toggle_theme())
-        backup = tk.Label(
-            row,
-            text="Backup",
-            bg=COLORS["sidebar"],
-            fg=COLORS["accent"],
-            font=("Segoe UI", 8),
-            cursor="hand2",
-        )
-        backup.pack(side="left", expand=True)
-        backup.bind("<Button-1>", self._show_backup_menu)
+        row.pack(side="bottom", fill="x", padx=10, pady=(2, 8))
+        icon_font = ("Segoe UI Symbol", 11)
+
+        def icon(text, command):
+            label = tk.Label(row, text=text, bg=COLORS["sidebar"], fg=COLORS["accent"], font=icon_font, cursor="hand2")
+            label.pack(side="left", padx=(0, 6))
+            label.bind("<Button-1>", command)
+            label.bind("<Enter>", lambda _e: label.configure(fg=COLORS["text"]))
+            label.bind("<Leave>", lambda _e: label.configure(fg=COLORS["accent"]))
+            return label
+
+        self.theme_label = icon("\u263e" if self.theme == "light" else "\u2600", lambda _e: self.toggle_theme())
+        self.backup_label = icon("\u21e9", self._show_backup_menu)
+        small = ("Segoe UI", 8)
+        tk.Label(row, text=f"{author} \u00b7 2026", bg=COLORS["sidebar"], fg=COLORS["muted"], font=small).pack(side="right")
+        self.update_label = tk.Label(row, text="", bg=COLORS["sidebar"], fg=COLORS["accent"], font=small, cursor="hand2")
+        self.update_label.pack(side="right", padx=(0, 10))
+        self.update_label.bind("<Button-1>", lambda _event: self.check_for_updates(manual=True))
+        self._restore_update_label()
 
     def _build_top_buttons(self):
         self.category_menu["menu"].config(

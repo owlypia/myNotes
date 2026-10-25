@@ -231,33 +231,7 @@ class NotesApp(EditorMixin):
             check.pack(side="left", expand=True)
             self.filter_checks[key] = check
 
-        tk.Label(
-            sidebar,
-            text="2026",
-            bg=COLORS["sidebar"],
-            fg=COLORS["muted"],
-            font=("Segoe UI", 8),
-        ).pack(side="bottom", fill="x", pady=(0, 12))
-
-        tk.Label(
-            sidebar,
-            text=f"Written by {APP_AUTHOR}",
-            bg=COLORS["sidebar"],
-            fg=COLORS["muted"],
-            font=("Segoe UI", 8),
-        ).pack(side="bottom", fill="x")
-
-        self.update_label = tk.Label(
-            sidebar,
-            text=f"v{APP_VERSION}  ·  Check for updates",
-            bg=COLORS["sidebar"],
-            fg=COLORS["accent"],
-            font=("Segoe UI", 8),
-            cursor="hand2",
-        )
-        self.update_label.pack(side="bottom", fill="x", pady=(0, 2))
-        self.update_label.bind("<Button-1>", lambda _event: self.check_for_updates(manual=True))
-        self._build_footer_tools(sidebar)
+        self._build_footer_tools(sidebar, APP_AUTHOR)
 
         self.list_canvas = tk.Canvas(sidebar, bg=COLORS["sidebar"], highlightthickness=0, bd=0)
         self.list_scroll = tk.Scrollbar(sidebar, orient="vertical", command=self.list_canvas.yview)
