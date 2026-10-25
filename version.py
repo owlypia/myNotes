@@ -1,4 +1,4 @@
-﻿APP_VERSION = "1.0.10"
+﻿APP_VERSION = "1.1.0"
 GITHUB_OWNER = "owlypia"
 GITHUB_REPO = "myNotes"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"

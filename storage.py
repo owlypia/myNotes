@@ -135,19 +135,108 @@ class NoteStore:
         self.save()
         return note
 
-    def update(self, note_id, title, content):
+    @staticmethod
+    def _norm_formats(value):
+        out = []
+        for item in value or []:
+            if isinstance(item, (list, tuple)) and len(item) == 3:
+                out.append([item[0], item[1], item[2]])
+        try:
+            return sorted(out)
+        except TypeError:
+            return out
+
+    def update(self, note_id, title, content, formats=None, tags=None):
         note = self.get(note_id)
         if note is None:
             return None
+        given_content = content
         title, content = split_title_body(title, content)
-        if note.get("title") == title and note.get("content") == content:
+        if content != given_content:
+            formats = []  # the text was rearranged, so old format offsets no longer apply
+        changed = note.get("title") != title or note.get("content") != content
+        if formats is not None:
+            formats = self._norm_formats(formats)
+            if self._norm_formats(note.get("format")) != formats:
+                changed = True
+        if tags is not None and (note.get("tags") or []) != tags:
+            changed = True
+        if not changed:
             return note
         note["title"] = title
         note["content"] = content
+        if formats is not None:
+            if formats:
+                note["format"] = formats
+            else:
+                note.pop("format", None)
+        if tags is not None:
+            if tags:
+                note["tags"] = tags
+            else:
+                note.pop("tags", None)
         note["updated_at"] = datetime.now().isoformat(timespec="seconds")
         self.notes.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
         self.save()
         return note
+
+    def trash(self, note_id):
+        note = self.get(note_id)
+        if note is None:
+            return None
+        note["deleted_at"] = datetime.now().isoformat(timespec="seconds")
+        self.save()
+        return note
+
+    def restore(self, note_id):
+        note = self.get(note_id)
+        if note is None:
+            return None
+        note.pop("deleted_at", None)
+        self.save()
+        return note
+
+    def merge(self, items):
+        """Add notes from another export. Existing notes are only replaced by a newer copy."""
+        now = datetime.now().isoformat(timespec="seconds")
+        added = updated = 0
+        for item in items:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            item = dict(item)
+            item["id"] = str(item["id"])
+            item["title"] = str(item.get("title") or "")
+            item["content"] = str(item.get("content") or "")
+            item.setdefault("created_at", now)
+            item.setdefault("updated_at", item["created_at"])
+            existing = self.get(item["id"])
+            if existing is None:
+                self.notes.append(item)
+                added += 1
+            elif (item.get("updated_at") or "") > (existing.get("updated_at") or ""):
+                existing.clear()
+                existing.update(item)
+                updated += 1
+        if added or updated:
+            self._normalize_notes()
+            self.notes.sort(key=lambda note: note.get("updated_at", ""), reverse=True)
+            self.save()
+        return added, updated
+
+    def daily_backup(self, keep=14):
+        if not self.notes or not os.path.exists(self.path):
+            return
+        folder = os.path.join(os.path.dirname(self.path), "backups")
+        try:
+            os.makedirs(folder, exist_ok=True)
+            target = os.path.join(folder, f"notes-{datetime.now():%Y%m%d}.json")
+            if not os.path.exists(target):
+                shutil.copy2(self.path, target)
+            names = sorted(n for n in os.listdir(folder) if n.startswith("notes-") and n.endswith(".json"))
+            for old in names[:-keep]:
+                os.remove(os.path.join(folder, old))
+        except OSError:
+            pass
 
     def set_category(self, note_id, category):
         if category not in CATEGORIES:
@@ -173,7 +262,7 @@ class NoteStore:
                 return note
         return None
 
-    def search(self, query, category=None, categories=None):
+    def search(self, query, category=None, categories=None, trashed=False):
         text = fold((query or "").strip())
         if categories:
             wanted = set(categories)
@@ -181,12 +270,21 @@ class NoteStore:
             wanted = {category}
         else:
             wanted = {"public"}
-        notes = [note for note in self.notes if note_category(note) in wanted]
+        notes = [
+            note
+            for note in self.notes
+            if note_category(note) in wanted and bool(note.get("deleted_at")) == trashed
+        ]
+        if trashed:
+            notes.sort(key=lambda note: note.get("deleted_at", ""), reverse=True)
+        else:
+            notes.sort(key=lambda note: not note.get("pinned"))
         if not text:
             return notes
         results = []
         for note in notes:
-            haystack = fold(f"{note.get('title', '')} {note.get('content', '')}")
+            tags = " ".join("#" + tag for tag in (note.get("tags") or []) if isinstance(tag, str))
+            haystack = fold(f"{note.get('title', '')} {note.get('content', '')} {tags}")
             if text in haystack:
                 results.append(note)
         return results

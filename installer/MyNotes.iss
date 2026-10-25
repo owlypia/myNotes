@@ -1,5 +1,5 @@
 #define MyAppName "MyNotes"
-#define MyAppVersion "1.0.10"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Kenan"
 #define MyAppExeName "MyNotes.exe"
 

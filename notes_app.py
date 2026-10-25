@@ -14,25 +14,10 @@ from paths import installed_exe_path, resource_path, update_marker_path
 from storage import NoteStore, note_category, split_title_body
 from updater import download_installer, fetch_latest_release, is_newer
 from vault import PasswordVault
+from features import EditorMixin
+from theme import COLORS, THEMES
 from version import APP_VERSION, GITHUB_RELEASES_URL, SETUP_ASSET_NAME
 
-COLORS = {
-    "bg": "#F4F1EA",
-    "sidebar": "#E7E1D6",
-    "sidebar_hover": "#DDD5C6",
-    "sidebar_active": "#D4C7B0",
-    "paper": "#FFFCF7",
-    "line": "#D8D0C4",
-    "text": "#2B2A28",
-    "muted": "#7A7468",
-    "accent": "#3E5C45",
-    "accent_hover": "#314A37",
-    "danger": "#A33B2B",
-    "danger_hover": "#862F22",
-    "search": "#FFFCF7",
-    "brand_my": "#6B2FA0",
-    "brand_notes": "#C62828",
-}
 
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 SEARCH_PLACEHOLDER = "Search notes..."
@@ -66,18 +51,25 @@ def one_line(text, limit=40):
 
 
 def preview_text(note):
+    mark = "\u2605 " if note.get("pinned") else ""
     title = one_line(note.get("title") or "")
     if title:
-        return title
+        return mark + title
     content = one_line(note.get("content") or "")
-    return content or "Empty note"
+    return mark + (content or "Empty note")
 
 
-class NotesApp:
+class NotesApp(EditorMixin):
     def __init__(self, root):
         self.root = root
         self.store = NoteStore()
         self.vault = PasswordVault()
+        self.theme = self.vault.data.get("theme", "light")
+        if self.theme not in THEMES:
+            self.theme = "light"
+        COLORS.update(THEMES[self.theme])
+        self._init_features()
+        self.store.daily_backup()
         self.filter_vars = {}
         self.selected_id = None
         self.note_buttons = {}
@@ -217,7 +209,7 @@ class NotesApp:
         filters = tk.Frame(sidebar, bg=COLORS["sidebar"])
         filters.pack(fill="x", padx=14, pady=(0, 10))
         self.filter_checks = {}
-        for key, label in CATEGORY_LABELS:
+        for key, label in CATEGORY_LABELS + (("trash", "Trash"),):
             var = tk.BooleanVar(value=(key == "public"))
             self.filter_vars[key] = var
             check = tk.Checkbutton(
@@ -265,6 +257,7 @@ class NotesApp:
         )
         self.update_label.pack(side="bottom", fill="x", pady=(0, 2))
         self.update_label.bind("<Button-1>", lambda _event: self.check_for_updates(manual=True))
+        self._build_footer_tools(sidebar)
 
         self.list_canvas = tk.Canvas(sidebar, bg=COLORS["sidebar"], highlightthickness=0, bd=0)
         self.list_scroll = tk.Scrollbar(sidebar, orient="vertical", command=self.list_canvas.yview)
@@ -315,6 +308,7 @@ class NotesApp:
             cursor="hand2",
         )
         self.category_menu.pack(side="right")
+        self._build_top_buttons()
 
         self.title_var = tk.StringVar()
         self.title_var.trace_add("write", self._on_title_write)
@@ -340,8 +334,12 @@ class NotesApp:
         self.editor_line = tk.Frame(self.editor, bg=COLORS["line"], height=1)
         self.editor_line.pack(fill="x", padx=22, pady=(0, 8))
 
+        self._build_tags_row()
+        self._build_toolbar()
+        self.body_wrap = tk.Frame(self.editor, bg=COLORS["paper"])
+        self.body_scroll = tk.Scrollbar(self.body_wrap, orient="vertical")
         self.body = tk.Text(
-            self.editor,
+            self.body_wrap,
             bg=COLORS["paper"],
             fg=COLORS["text"],
             insertbackground=COLORS["text"],
@@ -358,7 +356,11 @@ class NotesApp:
             autoseparators=True,
             maxundo=-1,
         )
-        self.body.pack(fill="both", expand=True, padx=22, pady=(0, 18))
+        self.body_scroll.pack(side="right", fill="y")
+        self.body.pack(side="left", fill="both", expand=True)
+        self.body_scroll.config(command=self.body.yview)
+        self.body.config(yscrollcommand=self.body_scroll.set)
+        self.body_wrap.pack(fill="both", expand=True, padx=22, pady=(0, 18))
         self.body.bind("<KeyRelease>", lambda _event: self.schedule_save())
         for sequence in ("<<Paste>>", "<<Cut>>"):
             self.body.bind(sequence, lambda _event: self.root.after_idle(self.schedule_save), add="+")
@@ -366,6 +368,7 @@ class NotesApp:
         self.body.bind("<Control-Z>", self._redo_body)
         self.body.bind("<Control-y>", self._redo_body)
         self.body.bind("<Control-Y>", self._redo_body)
+        self._setup_body_features()
 
         self.empty_hint = tk.Label(
             self.editor,
@@ -376,6 +379,7 @@ class NotesApp:
         )
 
         self.lock_frame = tk.Frame(self.editor, bg=COLORS["paper"])
+        self._hide_note_widgets()
 
     def _set_placeholder(self, entry, variable, placeholder):
         def on_focus_in(_event):
@@ -439,12 +443,13 @@ class NotesApp:
         if self._title_history[-1] != title:
             self._title_history.append(title)
             self._title_redo.clear()
-        if content.strip() and not self.body.get("1.0", "end-1c").strip():
-            self.body.delete("1.0", "end")
-            self.body.insert("1.0", content)
-        elif content.strip() and content != self.body.get("1.0", "end-1c"):
-            self.body.delete("1.0", "end")
-            self.body.insert("1.0", content)
+        old_body = self.body.get("1.0", "end-1c")
+        if content.strip() and content != old_body:
+            if old_body.strip() and content.endswith(old_body):
+                self.body.insert("1.0", content[: len(content) - len(old_body)])
+            else:
+                self.body.delete("1.0", "end")
+                self.body.insert("1.0", content)
         self._loading = False
         self.schedule_save()
         self.body.focus_set()
@@ -524,9 +529,13 @@ class NotesApp:
         return [key for key, _label in CATEGORY_LABELS if self.filter_vars.get(key) and self.filter_vars[key].get()]
 
     def private_locked(self):
+        if self.trash_mode():
+            return False
         return self.selected_categories() == ["private"] and not self.vault.unlocked
 
     def visible_notes(self):
+        if self.trash_mode():
+            return self._trash_notes()
         cats = self.selected_categories()
         if "private" in cats and not self.vault.unlocked:
             cats = [key for key in cats if key != "private"]
@@ -794,7 +803,7 @@ class NotesApp:
 
         notes = self.visible_notes()
         if not notes:
-            empty_text = "No notes found" if self._search_query() else "No notes in the selected categories"
+            empty_text = "No notes found" if self._search_query() else ("Trash is empty" if self.trash_mode() else "No notes in the selected categories")
             empty = tk.Label(
                 self.list_frame,
                 text=empty_text,
@@ -910,10 +919,12 @@ class NotesApp:
         self.note_painters[note_id] = set_bg
 
     def _hide_note_widgets(self):
+        self._close_find(False)
         self.title_entry.pack_forget()
         self.editor_line.pack_forget()
-        self.body.pack_forget()
-        self.category_menu.pack_forget()
+        self.tags_row.pack_forget()
+        self.toolbar.pack_forget()
+        self.body_wrap.pack_forget()
         self.top.pack_forget()
 
     def show_empty_editor(self):
@@ -923,6 +934,7 @@ class NotesApp:
         self.title_var.set("")
         self.body.delete("1.0", "end")
         self.body.edit_reset()
+        self.tags_var.set("")
         self._reset_title_history()
         self.meta_label.config(text="")
         self._hide_note_widgets()
@@ -933,10 +945,11 @@ class NotesApp:
         self.hide_lock_screen()
         self.empty_hint.pack_forget()
         self.top.pack(fill="x", padx=22, pady=(16, 0))
-        self.category_menu.pack(side="right")
         self.title_entry.pack(fill="x", padx=22, pady=(10, 6))
         self.editor_line.pack(fill="x", padx=22, pady=(0, 8))
-        self.body.pack(fill="both", expand=True, padx=22, pady=(0, 18))
+        self.tags_row.pack(fill="x", padx=22, pady=(0, 6))
+        self.toolbar.pack(fill="x", padx=22, pady=(0, 6))
+        self.body_wrap.pack(fill="both", expand=True, padx=22, pady=(0, 18))
 
     def select_note(self, note_id):
         if self.private_locked():
@@ -952,15 +965,15 @@ class NotesApp:
             if not self._ensure_private_access():
                 self.filter_vars["private"].set(False)
                 return
-        self.filter_vars[note_category(note)].set(True)
+        if not self.trash_mode():
+            self.filter_vars[note_category(note)].set(True)
 
         self.selected_id = note_id
         self._loading = True
         self.show_editor()
         self.title_var.set(note.get("title", ""))
-        self.body.delete("1.0", "end")
-        self.body.insert("1.0", note.get("content", ""))
-        self.body.edit_reset()
+        self._load_body(note)
+        self._load_note_meta(note)
         self._reset_title_history()
         self.category_var.set(CATEGORY_NAMES.get(note_category(note), "Public"))
         created = format_when(note.get("created_at"))
@@ -975,6 +988,9 @@ class NotesApp:
             self.body.focus_set()
 
     def create_note(self):
+        if self.trash_mode():
+            self.filter_vars["trash"].set(False)
+            self.apply_filters()
         if self.private_locked():
             if hasattr(self, "lock_password"):
                 self.lock_password.focus_set()
@@ -1007,12 +1023,19 @@ class NotesApp:
         if note is None:
             return
         label = preview_text(note)
-        if not messagebox.askyesno("Delete note", f'Delete "{label}"?'):
+        permanent = self.trash_mode()
+        if permanent and not messagebox.askyesno(
+            "Delete forever", f'Permanently delete "{label}"? This cannot be undone.'
+        ):
             return
         was_selected = target == self.selected_id
         if was_selected:
+            self.save_now()
             self.selected_id = None
-        self.store.delete(target)
+        if permanent:
+            self.store.delete(target)
+        else:
+            self.store.trash(target)
         remaining = self.visible_notes()
         self.refresh_list()
         if was_selected:
@@ -1038,7 +1061,7 @@ class NotesApp:
         before_order = [item.get("id") for item in self.store.notes]
         title = self.title_var.get()
         content = self.body.get("1.0", "end-1c")
-        self.store.update(self.selected_id, title, content)
+        self.store.update(self.selected_id, title, content, formats=self._collect_formats(), tags=self._collect_tags())
         note = self.store.get(self.selected_id)
         if note:
             self.meta_label.config(
@@ -1048,9 +1071,7 @@ class NotesApp:
             if (title != note.get("title", "") or content != note.get("content", "")) and not typing_empty_title:
                 self._loading = True
                 self.title_var.set(note.get("title", ""))
-                self.body.delete("1.0", "end")
-                self.body.insert("1.0", note.get("content", ""))
-                self.body.edit_reset()
+                self._load_body(note)
                 self._loading = False
                 self._reset_title_history()
         after = preview_text(note or {})
