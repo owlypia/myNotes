@@ -15,6 +15,7 @@ from storage import NoteStore, note_category, split_title_body
 from updater import download_installer, fetch_latest_release, is_newer
 from vault import PasswordVault
 from features import EditorMixin
+from passwords_ui import PasswordsUIMixin
 from theme import COLORS, THEMES
 from version import APP_VERSION, GITHUB_RELEASES_URL, SETUP_ASSET_NAME
 
@@ -59,7 +60,7 @@ def preview_text(note):
     return mark + (content or "Empty note")
 
 
-class NotesApp(EditorMixin):
+class NotesApp(EditorMixin, PasswordsUIMixin):
     def __init__(self, root):
         self.root = root
         self.store = NoteStore()
@@ -69,6 +70,7 @@ class NotesApp(EditorMixin):
             self.theme = "light"
         COLORS.update(THEMES[self.theme])
         self._init_features()
+        self._init_passwords()
         self.store.daily_backup()
         self.filter_vars = {}
         self.selected_id = None
@@ -230,6 +232,8 @@ class NotesApp(EditorMixin):
             )
             check.pack(side="left", expand=True)
             self.filter_checks[key] = check
+        
+        self._add_passwords_filter(filters)
 
         self._build_footer_tools(sidebar, APP_AUTHOR)
 
@@ -244,7 +248,7 @@ class NotesApp(EditorMixin):
         self.list_frame.bind("<Configure>", self._on_list_configure)
         self.list_canvas.bind("<Configure>", self._on_canvas_configure)
         self.list_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-        self.search_var.trace_add("write", lambda *_: self.refresh_list())
+        self.search_var.trace_add("write", lambda *_: (self._refresh_passwords_list() if self.passwords_mode else self.refresh_list()))
 
         self.editor = tk.Frame(shell, bg=COLORS["paper"], highlightbackground=COLORS["line"], highlightthickness=1)
         self.editor.pack(side="left", fill="both", expand=True, padx=(14, 0))
@@ -1055,6 +1059,7 @@ class NotesApp(EditorMixin):
     def on_close(self):
         self.save_now()
         self.vault.lock()
+        self._passwords_on_close()
         self.root.destroy()
 
     def _start_silent_update_check(self):

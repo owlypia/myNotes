@@ -28,6 +28,10 @@ def settings_file_path():
     return os.path.join(_data_folder(), "settings.json")
 
 
+def passwords_vault_path():
+    return os.path.join(_data_folder(), "passwords.vault")
+
+
 def _data_folder():
     appdata = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     folder = os.path.join(appdata, "MyNotes")
