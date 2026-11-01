@@ -3,8 +3,8 @@ setlocal
 cd /d "%~dp0"
 
 set PY=python
-py -3 -c "import sys" >nul 2>&1
-if not errorlevel 1 set PY=py -3
+python -c "import sys" >nul 2>&1
+if errorlevel 1 set PY=py -3
 
 echo [1/4] Syncing version...
 %PY% tools\sync_version.py
